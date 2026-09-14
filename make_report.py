@@ -113,7 +113,6 @@ class NumberedCanvas(canvas.Canvas):
             # Running Footer
             self.setFont("Helvetica", 8)
             self.setFillColor(TEXT_MUTED)
-            self.drawString(45, 33, "Confidential — Academic & Technical Evaluation Reference")
             page_text = f"Page {self._pageNumber} of {page_count}"
             self.drawRightString(567, 33, page_text)
         self.restoreState()
