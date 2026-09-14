@@ -1,14 +1,21 @@
 import os
 import sys
+import io
+import html
+import pypdf
+import pygments
+from pygments import highlight
+from pygments.lexers import JavaLexer, CssLexer, DockerLexer
+from pygments.formatter import Formatter
+from pygments.token import Token
+
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.lib.units import inch
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, PageBreak, Spacer, Table, TableStyle, KeepTogether, HRFlowable, Preformatted
+    SimpleDocTemplate, Paragraph, PageBreak, Spacer, Table, TableStyle, HRFlowable
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfgen import canvas
-import pypdf
 
 # Palette definition (Apple / Executive Modern Palette)
 PRIMARY = colors.HexColor("#0f172a")       # Slate 900
@@ -21,12 +28,51 @@ BG_CARD = colors.HexColor("#f8fafc")       # Slate 50
 BORDER_LIGHT = colors.HexColor("#e2e8f0")  # Slate 200
 BORDER_MID = colors.HexColor("#cbd5e1")    # Slate 300
 CODE_BG = colors.HexColor("#0f172a")       # Slate 900 code background
-CODE_TEXT = colors.HexColor("#e2e8f0")     # Light text for code
+CODE_BORDER = colors.HexColor("#334155")   # Slate 700 code border
 TAG_BG = colors.HexColor("#f1f5f9")        # Slate 100
-CALLOUT_BG = colors.HexColor("#f0f9ff")    # Sky 50
-CALLOUT_BORDER = colors.HexColor("#0284c7")
 SUCCESS_BG = colors.HexColor("#dcfce7")
-SUCCESS_TEXT = colors.HexColor("#15803d")
+
+class ReportLabDarkFormatter(Formatter):
+    """Pygments formatter generating ReportLab inline XML tags for high-contrast dark theme."""
+    COLORS = {
+        Token.Keyword: ("#38bdf8", True, False),          # Vibrant Sky Blue, bold
+        Token.Keyword.Type: ("#2dd4bf", False, False),     # Teal
+        Token.Name.Class: ("#fde047", True, False),       # Vibrant Yellow, bold
+        Token.Name.Function: ("#60a5fa", False, False),    # Soft Blue
+        Token.Name.Decorator: ("#f472b6", True, False),   # Vibrant Pink, bold
+        Token.String: ("#4ade80", False, False),           # Vibrant Green
+        Token.Number: ("#fb923c", False, False),           # Orange
+        Token.Comment: ("#94a3b8", False, True),           # Slate Gray, italic
+        Token.Operator: ("#e2e8f0", False, False),         # Off-white
+        Token.Punctuation: ("#cbd5e1", False, False),      # Light slate
+    }
+
+    def format(self, tokensource, outfile):
+        for ttype, value in tokensource:
+            escaped = html.escape(value).replace(' ', '&nbsp;').replace('\n', '<br/>')
+            if not escaped:
+                continue
+            
+            color = None
+            bold = False
+            italic = False
+            curr = ttype
+            while curr:
+                if curr in self.COLORS:
+                    color, bold, italic = self.COLORS[curr]
+                    break
+                curr = curr.parent
+            
+            chunk = escaped
+            if italic:
+                chunk = f"<i>{chunk}</i>"
+            if bold:
+                chunk = f"<b>{chunk}</b>"
+            
+            if color:
+                outfile.write(f'<font color="{color}">{chunk}</font>')
+            else:
+                outfile.write(f'<font color="#f8fafc">{chunk}</font>')
 
 class NumberedCanvas(canvas.Canvas):
     def __init__(self, *args, **kwargs):
@@ -71,6 +117,22 @@ class NumberedCanvas(canvas.Canvas):
             page_text = f"Page {self._pageNumber} of {page_count}"
             self.drawRightString(567, 33, page_text)
         self.restoreState()
+
+def create_code_box(code_str, lexer, style, width=522):
+    """Utility to highlight code with Pygments and enclose inside an opaque dark card Table."""
+    out = io.StringIO()
+    highlight(code_str, lexer, ReportLabDarkFormatter(), out)
+    p = Paragraph(out.getvalue(), style)
+    t = Table([[p]], colWidths=[width])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), CODE_BG),
+        ('BOX', (0,0), (-1,-1), 0.75, CODE_BORDER),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+        ('RIGHTPADDING', (0,0), (-1,-1), 6),
+    ]))
+    return t
 
 def build_pdf(filename="Passport_Management_System_Technical_Report.pdf"):
     # Printable area: 522 pt width x 702 pt height
@@ -147,20 +209,13 @@ def build_pdf(filename="Passport_Management_System_Technical_Report.pdf"):
         spaceAfter=2.5
     )
 
-    code_style = ParagraphStyle(
-        'Code_Block',
+    code_p_style = ParagraphStyle(
+        'Code_Paragraph',
         parent=styles['Normal'],
         fontName='Courier',
         fontSize=6.4,
         leading=8.2,
-        textColor=CODE_TEXT,
-        backColor=CODE_BG,
-        borderColor=BORDER_LIGHT,
-        borderWidth=0.5,
-        borderPadding=4,
-        spaceBefore=2,
-        spaceAfter=3,
-        keepWithNext=False
+        textColor=colors.HexColor("#f8fafc")
     )
 
     table_cell = ParagraphStyle(
@@ -493,7 +548,7 @@ public class PassportApplicationService {
         return applicationRepository.save(application);
     }
 }"""
-    story.append(Preformatted(code_submission, code_style))
+    story.append(create_code_box(code_submission, JavaLexer(), code_p_style))
 
     story.append(Paragraph("4.2 VerificationService.java — Officer Audit & Passport Issuance Logic", h2_style))
     code_verification = """@Service @Transactional
@@ -530,7 +585,7 @@ public class VerificationService {
         return appRepo.save(app);
     }
 }"""
-    story.append(Preformatted(code_verification, code_style))
+    story.append(create_code_box(code_verification, JavaLexer(), code_p_style))
 
     story.append(Paragraph("4.3 Business Rules & Concurrency Highlights", h2_style))
     story.append(Paragraph("• <b>Declarative Transactional Demarcation:</b> <code>@Transactional</code> guarantees atomic commits. If database writing fails during passport linking, the entire transaction rolls back cleanly.", bullet_style))
@@ -568,7 +623,7 @@ public class RoleAuthInterceptor implements HandlerInterceptor {
         return true;
     }
 }"""
-    story.append(Preformatted(code_interceptor, code_style))
+    story.append(create_code_box(code_interceptor, JavaLexer(), code_p_style))
 
     story.append(Paragraph("5.2 Global Exception Handling Architecture", h2_style))
     story.append(Paragraph(
@@ -637,7 +692,7 @@ public class RoleAuthInterceptor implements HandlerInterceptor {
     --apple-hairline: rgba(255, 255, 255, 0.12);
     --apple-blue: #0a84ff;      --apple-blue-hover: #409cff;
 }"""
-    story.append(Preformatted(theme_code, code_style))
+    story.append(create_code_box(theme_code, CssLexer(), code_p_style))
 
     story.append(Paragraph("6.3 Role-Segregated Dashboards & Workflow", h2_style))
     dash_data = [
@@ -701,7 +756,7 @@ class PassportApplicationTests {
         assertNotNull(issued.getPassportRecord().getPassportNumber());
     }
 }"""
-    story.append(Preformatted(code_test, code_style))
+    story.append(create_code_box(code_test, JavaLexer(), code_p_style))
 
     story.append(Paragraph("7.2 Multi-Stage Dockerfile Architecture", h2_style))
     docker_code = """FROM maven:3.9.6-eclipse-temurin-17 AS build
@@ -715,7 +770,7 @@ COPY --from=build /app/target/passport-management-*.jar app.jar
 ENV PORT=8080
 EXPOSE 8080
 CMD ["sh", "-c", "java -Dserver.port=${PORT} -jar app.jar"]"""
-    story.append(Preformatted(docker_code, code_style))
+    story.append(create_code_box(docker_code, DockerLexer(), code_p_style))
 
     story.append(Paragraph("7.3 Production Cloud Deployment on Render", h2_style))
     story.append(Paragraph("• <b>Dynamic Port Binding:</b> Configured <code>server.port=${PORT:8080}</code> to seamlessly bind to Render's dynamic ports.", bullet_style))
@@ -730,7 +785,6 @@ CMD ["sh", "-c", "java -Dserver.port=${PORT} -jar app.jar"]"""
 
     doc.build(story, canvasmaker=NumberedCanvas)
     
-    # Verify exact page count with pypdf
     reader = pypdf.PdfReader(filename)
     num_pages = len(reader.pages)
     print(f"Report generated successfully: {filename} (Total Pages: {num_pages})")
