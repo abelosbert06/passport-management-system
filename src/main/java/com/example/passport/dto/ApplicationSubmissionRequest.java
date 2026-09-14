@@ -6,7 +6,6 @@ import jakarta.validation.constraints.NotNull;
 
 public class ApplicationSubmissionRequest {
 
-    @NotNull(message = "Applicant ID is required")
     private Long applicantId;
 
     @NotNull(message = "Passport type is required")

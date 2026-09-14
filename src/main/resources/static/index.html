@@ -964,6 +964,7 @@
             }
 
             const payload = {
+                applicantId: currentUser ? currentUser.applicantId : null,
                 passportType: document.getElementById('userAppType').value,
                 idProofNumber: idProof
             };
@@ -975,8 +976,12 @@
                     body: JSON.stringify(payload)
                 });
                 if (!res.ok) {
-                    const err = await res.json();
-                    throw new Error(err.message || 'Submission failed');
+                    let errMsg = 'Submission failed';
+                    try {
+                        const err = await res.json();
+                        errMsg = err.message || (err.errors ? Object.values(err.errors).join(", ") : errMsg);
+                    } catch (e) {}
+                    throw new Error(errMsg);
                 }
                 const result = await res.json();
                 alertBox.className = 'alert alert-success mt-3 py-2 small';

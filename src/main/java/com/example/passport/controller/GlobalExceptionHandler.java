@@ -45,6 +45,8 @@ public class GlobalExceptionHandler {
         response.put("timestamp", LocalDateTime.now());
         response.put("status", HttpStatus.BAD_REQUEST.value());
         response.put("error", "Validation Failed");
+        String firstMessage = fieldErrors.values().stream().findFirst().orElse("Validation failed");
+        response.put("message", firstMessage);
         response.put("errors", fieldErrors);
 
         return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
